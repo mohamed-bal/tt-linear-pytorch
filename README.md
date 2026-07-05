@@ -173,9 +173,9 @@ Every number below is produced by a passing test in `tests/test_core.py`, not as
 
 ## Benchmarks
 
-Correctness tests confirm the math is right. They say nothing about speed. Run `python benchmarks/bench_tt_linear.py` to measure latency, throughput, and memory on your own hardware — full methodology and this repo's own reference numbers are in [`benchmarks/README.md`](benchmarks/README.md).
+Correctness tests confirm the math is right. They say nothing about speed, and speed here is genuinely scale-dependent — not a single universal answer. Full methodology and numbers: [`benchmarks/README.md`](benchmarks/README.md).
 
-**The short version, stated plainly: on the CPU reference run in this repo, `TTLinear` is 2x–50x *slower* in wall-clock latency than dense `nn.Linear`, worse at larger batch sizes and higher rank — the direct cost of not having a fused TT-contraction kernel.** Memory/parameter savings are real and independently verified (see above); latency is not free, and currently goes the wrong way without dedicated kernel work. Use this library where memory is the hard constraint, not where latency is. See `benchmarks/README.md` for the full numbers and a `torch.compile` mitigation that helps but doesn't close the gap.
+**The short version:** on small square matrices (256–1024), `TTLinear` is 2x–50x *slower* than dense `nn.Linear`. But at real LLM-scale dimensions (tested against Gemma-3-1B's actual MLP shapes: embed_dim=1152, MLP hidden=6912), the picture flips at low rank — **up to 5.9x *faster* than dense** at rank 16, batch 1, while still keeping the memory savings. The crossover runs the other way at high rank + large batch (down to 0.23x, i.e. ~4x slower). Run `python benchmarks/bench_real_model.py` to see the full rank×batch sweep, and `python benchmarks/bench_tt_linear.py` for the small-matrix reference numbers — then re-run both against your own model's actual layer dimensions before assuming either direction. `benchmarks/bench_real_checkpoint.py` is for the separate accuracy question: it profiles a real loaded checkpoint's real trained layer against real captured activations, which random-weight benchmarks can't tell you anything about.
 
 ## Security notes
 
@@ -186,7 +186,7 @@ Correctness tests confirm the math is right. They say nothing about speed. Run `
 ## What this is not
 
 - **Not a claim involving real quantum computing hardware.** "Tensor network" refers to a classical mathematical toolkit with origins in condensed-matter physics, running on ordinary GPUs. No qubit ever touches this code. See the article for the full distinction.
-- **Not a maximally-optimized kernel — and measurably so.** The forward pass is correct and avoids dense-matrix materialization, but it is currently 2x–50x *slower* in wall-clock terms than dense `nn.Linear` on the reference hardware in `benchmarks/README.md`. This repo prioritizes correctness and clarity over kernel-level performance engineering; don't adopt it for a latency-bound workload without benchmarking on your own hardware first.
+- **Not a maximally-optimized kernel — and the wall-clock result depends heavily on scale, rank, and batch.** The forward pass is correct and avoids dense-matrix materialization. On small matrices it's consistently slower than dense `nn.Linear`; at real LLM-scale dimensions and low rank it can be faster (see `benchmarks/README.md` for the full picture and the crossover). Benchmark on your own model's actual shapes before assuming either direction.
 - **Not a rank-selection heuristic.** `profile_layer_compressibility` measures a rank *you* choose; it doesn't search for or recommend one.
 - **Not validated at LLM scale.** All correctness tests run at small matrix sizes (64×64, 4096-element tensors) where exact reconstruction is cheap to verify directly. The mathematics is scale-invariant, but you should re-run `profile_layer_compressibility` against your actual model before trusting any specific compression ratio.
 
