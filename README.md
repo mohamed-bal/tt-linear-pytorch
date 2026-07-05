@@ -34,7 +34,16 @@ If you came here from the article: this is the exact code from the "production i
 
 ## The one-paragraph theory
 
-Trained neural network weight matrices exhibit low effective entanglement/correlation structure — their real information content is smaller than their raw parameter count suggests, in the same sense that ground states of gapped quantum systems obey an area law: entanglement entropy across a cut stays bounded rather than growing with system size, so a fixed **bond dimension (χ)** can represent the structure exactly. TT-matrix decomposition is that same bond-dimension truncation applied to a weight matrix reshaped into a higher-order tensor. Truncating χ is the actual "RAM knob" — smaller χ means more compression and more accuracy loss, and the relationship tracks each layer's real entropy, not a single global constant. **[Full derivation, with the actual area-law inequality and bond-dimension bound, in the article.](https://dev.to/mohamed_bal/quantum-inspired-not-quantum-the-physics-of-tensor-networks-behind-production-llm-compression-14fh)**
+Trained neural network weight matrices exhibit low effective entanglement/correlation structure — their real information content is smaller than their raw parameter count suggests, in the same sense that ground states of gapped quantum systems obey an area law: entanglement entropy across a cut stays bounded rather than growing with system size, so a fixed **bond dimension (χ)** can represent the structure exactly. TT-matrix decomposition is that same bond-dimension truncation applied to a weight matrix reshaped into a higher-order tensor. Truncating χ is the actual "RAM knob" — smaller χ means more compression and more accuracy loss, and the relationship tracks each layer's real entropy, not a single global constant.
+
+## The Area Law: Entanglement Scales With the Boundary
+<img width="900" height="420" alt="area-law-diagram" src="https://github.com/user-attachments/assets/b16c1b0d-117f-4f1d-a579-b45e7c7d582d" />
+
+## Matrix Product State Architecture
+<img width="772" height="358" alt="mps-architecture" src="https://github.com/user-attachments/assets/2f90a72c-a4cb-4ae2-8e42-3ebe20394ed1" />
+
+## 
+**[Full derivation, with the actual area-law inequality and bond-dimension bound, in the article.](https://dev.to/mohamed_bal/quantum-inspired-not-quantum-the-physics-of-tensor-networks-behind-production-llm-compression-14fh)**
 
 ## Install
 
@@ -143,6 +152,13 @@ def replace_linear_with_tt(module: nn.Module, config_fn) -> nn.Module:
 ## Choosing rank per layer
 
 Don't pick one global χ. Sweep `profile_layer_compressibility` per layer against real captured activations, and select the smallest χ that keeps `functional_rel_error` under your accuracy budget *for that specific layer*. Expect earlier layers to need higher rank and deeper layers to tolerate more aggressive truncation — this reproduces, empirically on your own model, the layer-depth-dependent redundancy pattern discussed in the article. The full decision procedure (including when compressing at all is the wrong call versus using a smaller dense model) is in the article's production framework section, not duplicated here.
+
+## Bond Dimension RAM Knob
+<img width="776" height="432" alt="bond-dimension-curve" src="https://github.com/user-attachments/assets/685b713b-e02f-4ac2-91a5-5df460d4d096" />
+
+
+## Production Decision Framework
+<img width="1150" height="1500" alt="decision-framework-diagram" src="https://github.com/user-attachments/assets/07330787-e518-4dd5-9948-ca8f25cea3d4" />
 
 ## Verified correctness claims
 
