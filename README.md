@@ -20,6 +20,7 @@ TT-matrix (tensor-train) compressed linear layers for PyTorch — a drop-in `nn.
 - [Replacing `nn.Linear` in an existing model](#replacing-nnlinear-in-an-existing-model)
 - [Choosing rank per layer](#choosing-rank-per-layer)
 - [Verified correctness claims](#verified-correctness-claims)
+- [Benchmarks](#benchmarks)
 - [Security notes](#security-notes)
 - [What this is not](#what-this-is-not)
 - [Running the tests](#running-the-tests)
@@ -34,7 +35,18 @@ If you came here from the article: this is the exact code from the "production i
 
 ## The one-paragraph theory
 
-Trained neural network weight matrices exhibit low effective entanglement/correlation structure — their real information content is smaller than their raw parameter count suggests, in the same sense that ground states of gapped quantum systems obey an area law: entanglement entropy across a cut stays bounded rather than growing with system size, so a fixed **bond dimension (χ)** can represent the structure exactly. TT-matrix decomposition is that same bond-dimension truncation applied to a weight matrix reshaped into a higher-order tensor. Truncating χ is the actual "RAM knob" — smaller χ means more compression and more accuracy loss, and the relationship tracks each layer's real entropy, not a single global constant. **[Full derivation, with the actual area-law inequality and bond-dimension bound, in the article.](https://dev.to/mohamed_bal/quantum-inspired-not-quantum-the-physics-of-tensor-networks-behind-production-llm-compression-14fh)**
+Trained neural network weight matrices exhibit low effective entanglement/correlation structure — their real information content is smaller than their raw parameter count suggests, in the same sense that ground states of gapped quantum systems obey an area law: entanglement entropy across a cut stays bounded rather than growing with system size, so a fixed **bond dimension (χ)** can represent the structure exactly. TT-matrix decomposition is that same bond-dimension truncation applied to a weight matrix reshaped into a higher-order tensor. Truncating χ is the actual "RAM knob" — smaller χ means more compression and more accuracy loss, and the relationship tracks each layer's real entropy, not a single global constant. 
+
+## The Area Law: Entanglement Scales With the Boundary
+<img width="900" height="420" alt="area-law-diagram" src="https://github.com/user-attachments/assets/b16c1b0d-117f-4f1d-a579-b45e7c7d582d" />
+
+## Matrix Product State Architecture
+<img width="772" height="358" alt="mps-architecture" src="https://github.com/user-attachments/assets/2f90a72c-a4cb-4ae2-8e42-3ebe20394ed1" />
+
+## 
+**[Full derivation, with the actual area-law inequality and bond-dimension bound, in the article.](https://dev.to/mohamed_bal/quantum-inspired-not-quantum-the-physics-of-tensor-networks-behind-production-llm-compression-14fh)**
+
+
 
 ## Install
 
@@ -144,6 +156,13 @@ def replace_linear_with_tt(module: nn.Module, config_fn) -> nn.Module:
 
 Don't pick one global χ. Sweep `profile_layer_compressibility` per layer against real captured activations, and select the smallest χ that keeps `functional_rel_error` under your accuracy budget *for that specific layer*. Expect earlier layers to need higher rank and deeper layers to tolerate more aggressive truncation — this reproduces, empirically on your own model, the layer-depth-dependent redundancy pattern discussed in the article. The full decision procedure (including when compressing at all is the wrong call versus using a smaller dense model) is in the article's production framework section, not duplicated here.
 
+## Bond Dimension RAM Knob
+<img width="776" height="432" alt="bond-dimension-curve" src="https://github.com/user-attachments/assets/685b713b-e02f-4ac2-91a5-5df460d4d096" />
+
+## Production Decision Framework
+<img width="1150" height="1500" alt="decision-framework-diagram" src="https://github.com/user-attachments/assets/07330787-e518-4dd5-9948-ca8f25cea3d4" />
+
+
 ## Verified correctness claims
 
 Every number below is produced by a passing test in `tests/test_core.py`, not asserted from memory:
@@ -154,6 +173,12 @@ Every number below is produced by a passing test in `tests/test_core.py`, not as
 - **TT format costs *more* than dense storage at/near full rank** — an honest, intentionally-tested property, not a bug. Compression only pays off where a layer's actual entropy is low, which full-rank-by-definition is not.
 - **Two real implementation bugs were caught by this test suite during development** — an axis-interleaving-order error that only manifested with 3+ factors, and an axis-pairing error in the efficient forward pass — and are now permanent regression tests.
 
+## Benchmarks
+
+Correctness tests confirm the math is right. They say nothing about speed. Run `python benchmarks/bench_tt_linear.py` to measure latency, throughput, and memory on your own hardware — full methodology and this repo's own reference numbers are in [`benchmarks/README.md`](benchmarks/README.md).
+
+**The short version, stated plainly: on the CPU reference run in this repo, `TTLinear` is 2x–50x *slower* in wall-clock latency than dense `nn.Linear`, worse at larger batch sizes and higher rank — the direct cost of not having a fused TT-contraction kernel.** Memory/parameter savings are real and independently verified (see above); latency is not free, and currently goes the wrong way without dedicated kernel work. Use this library where memory is the hard constraint, not where latency is. See `benchmarks/README.md` for the full numbers and a `torch.compile` mitigation that helps but doesn't close the gap.
+
 ## Security notes
 
 - **Never `torch.load()` a checkpoint from an untrusted source without `weights_only=True`.** Pickle-based checkpoints can execute arbitrary code on load. This applies to TT-core checkpoints exactly as much as to any other model artifact — a compressed model is not a lower-risk artifact.
@@ -163,7 +188,7 @@ Every number below is produced by a passing test in `tests/test_core.py`, not as
 ## What this is not
 
 - **Not a claim involving real quantum computing hardware.** "Tensor network" refers to a classical mathematical toolkit with origins in condensed-matter physics, running on ordinary GPUs. No qubit ever touches this code. See the article for the full distinction.
-- **Not a maximally-optimized kernel.** The forward pass is correct and avoids dense-matrix materialization, but a production deployment at real scale should benchmark against dedicated tensor-train inference kernels before assuming this exact implementation is throughput-optimal — this repo prioritizes correctness and clarity over kernel-level performance engineering.
+- **Not a maximally-optimized kernel — and measurably so.** The forward pass is correct and avoids dense-matrix materialization, but it is currently 2x–50x *slower* in wall-clock terms than dense `nn.Linear` on the reference hardware in `benchmarks/README.md`. This repo prioritizes correctness and clarity over kernel-level performance engineering; don't adopt it for a latency-bound workload without benchmarking on your own hardware first.
 - **Not a rank-selection heuristic.** `profile_layer_compressibility` measures a rank *you* choose; it doesn't search for or recommend one.
 - **Not validated at LLM scale.** All correctness tests run at small matrix sizes (64×64, 4096-element tensors) where exact reconstruction is cheap to verify directly. The mathematics is scale-invariant, but you should re-run `profile_layer_compressibility` against your actual model before trusting any specific compression ratio.
 
